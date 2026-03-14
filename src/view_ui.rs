@@ -258,15 +258,12 @@ fn group_into_rooms(sessions: &[Session]) -> Vec<Room> {
     let mut map: BTreeMap<String, Vec<usize>> = BTreeMap::new();
 
     for (i, s) in sessions.iter().enumerate() {
-        let basename = if s.cwd.is_empty() {
+        let room_name = if s.cwd.is_empty() {
             "unknown".to_string()
         } else {
-            std::path::Path::new(&s.cwd)
-                .file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| s.cwd.clone())
+            shorten_home(&s.cwd)
         };
-        map.entry(basename).or_default().push(i);
+        map.entry(room_name).or_default().push(i);
     }
 
     let mut rooms: Vec<Room> = map
@@ -578,6 +575,16 @@ fn render_footer(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
+
+fn shorten_home(path: &str) -> String {
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy();
+        if let Some(rest) = path.strip_prefix(home_str.as_ref()) {
+            return format!("~{rest}");
+        }
+    }
+    path.to_string()
+}
 
 fn truncate_str(s: &str, max_width: usize) -> String {
     let char_count: usize = s.chars().count();
