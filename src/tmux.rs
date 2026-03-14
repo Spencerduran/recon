@@ -23,7 +23,12 @@ const EXIT_SNIPPET: &str = r#"
 for f in ~/.claude/sessions/*.json; do
   [ "$f" -nt "$_RECON_MARKER" ] || continue
   SID=$(jq -r '.sessionId // empty' "$f" 2>/dev/null)
-  [ -n "$SID" ] && { tmux display-message -d 0 "recon --resume $SID"; break; }
+  if [ -n "$SID" ]; then
+    # Fire display-message after a short delay so it appears on the NEXT session
+    # the user lands on (this session is about to close).
+    (sleep 1 && tmux display-message -d 0 "recon --resume $SID") &
+    break
+  fi
 done
 rm -f "$_RECON_MARKER"
 "#;
