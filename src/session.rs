@@ -187,34 +187,92 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
         }
     }
 
-    // Add tmux sessions running claude that have no JSONL yet
+    // Handle live sessions with no direct JSONL name match.
+    // This covers two cases:
+    //   1. Brand-new sessions (no JSONL yet) → show as New placeholder
+    //   2. Resumed sessions (claude --resume creates a new session-id in the session file
+    //      but continues appending to the original JSONL) → find via lsof, show real data
     let known_tmux: std::collections::HashSet<String> = sessions
         .iter()
         .filter_map(|s| s.tmux_session.clone())
         .collect();
 
-    for live in live_map.values() {
+    for (session_id_key, live) in &live_map {
         if known_tmux.contains(&live.tmux_session) {
             continue;
         }
-        let (project_name, branch) = git_project_info(&live.pane_cwd);
 
-        sessions.push(Session {
-            session_id: format!("tmux-{}", live.tmux_session),
-            project_name,
-            branch,
-            cwd: live.pane_cwd.clone(),
-            tmux_session: Some(live.tmux_session.clone()),
-            model: None,
-            total_input_tokens: 0,
-            total_output_tokens: 0,
-            status: SessionStatus::New,
-            pid: Some(live.pid),
-            last_activity: None,
-            started_at: live.started_at,
-            jsonl_path: PathBuf::new(),
-            last_file_size: 0,
-        });
+        // For sessions that have a real session-id (not the "tmux-{name}" placeholder),
+        // try to find the JSONL via lsof. This handles resumed sessions where the
+        // session file's session-id doesn't match the original JSONL filename.
+        let jsonl_path = if !session_id_key.starts_with("tmux-") {
+            // Check prev_sessions cache first to avoid repeated ps calls
+            let cached = prev_sessions
+                .get(session_id_key.as_str())
+                .filter(|s| !s.jsonl_path.as_os_str().is_empty())
+                .map(|s| s.jsonl_path.clone());
+            cached.or_else(|| find_jsonl_for_resumed_session(&live.tmux_session, live.pid))
+        } else {
+            None
+        };
+
+        if let Some(path) = jsonl_path {
+            let prev = prev_sessions.get(session_id_key.as_str());
+            let info = parse_jsonl(
+                &path,
+                prev.map(|s| s.last_file_size).unwrap_or(0),
+                prev.map(|s| s.total_input_tokens).unwrap_or(0),
+                prev.map(|s| s.total_output_tokens).unwrap_or(0),
+                prev.and_then(|s| s.model.clone()),
+                prev.and_then(|s| s.last_activity.clone()),
+            );
+
+            let cwd = info.cwd.clone().unwrap_or_else(|| live.pane_cwd.clone());
+            let (project_name, branch) = git_project_info(&cwd);
+
+            let status = determine_status(
+                &path,
+                info.input_tokens,
+                info.output_tokens,
+                Some(&live.tmux_session),
+            );
+
+            sessions.push(Session {
+                session_id: session_id_key.clone(),
+                project_name,
+                branch,
+                cwd,
+                tmux_session: Some(live.tmux_session.clone()),
+                model: info.model,
+                total_input_tokens: info.input_tokens,
+                total_output_tokens: info.output_tokens,
+                status,
+                pid: Some(live.pid),
+                last_activity: info.last_activity,
+                started_at: live.started_at,
+                jsonl_path: path,
+                last_file_size: info.file_size,
+            });
+        } else {
+            // No JSONL found — brand-new session, show as New placeholder
+            let (project_name, branch) = git_project_info(&live.pane_cwd);
+            sessions.push(Session {
+                session_id: session_id_key.clone(),
+                project_name,
+                branch,
+                cwd: live.pane_cwd.clone(),
+                tmux_session: Some(live.tmux_session.clone()),
+                model: None,
+                total_input_tokens: 0,
+                total_output_tokens: 0,
+                status: SessionStatus::New,
+                pid: Some(live.pid),
+                last_activity: None,
+                started_at: live.started_at,
+                jsonl_path: PathBuf::new(),
+                last_file_size: 0,
+            });
+        }
     }
 
     // Sort by creation time (oldest first)
@@ -525,6 +583,92 @@ fn parse_jsonl(
         status,
         file_size,
     }
+}
+
+/// For a resumed session, find the original JSONL by locating the session-id
+/// that `claude --resume` was called with.
+///
+/// `claude --resume <orig-id>` writes a new session-id to its session file but
+/// continues appending to the original JSONL (named after the old session-id).
+///
+/// Strategy (in order):
+///  1. Read `RECON_RESUMED_FROM` from the tmux session environment — set by
+///     `recon --resume` at session creation time. Reliable and zero-overhead.
+///  2. Fall back to parsing `ps` args for sessions started outside of recon
+///     (e.g. the user ran `claude --resume <id>` in a tmux session manually).
+fn find_jsonl_for_resumed_session(tmux_session: &str, pid: i32) -> Option<PathBuf> {
+    // Try tmux environment variable first (set by recon --resume)
+    let original_id = read_tmux_env(tmux_session, "RECON_RESUMED_FROM")
+        // Fall back to parsing ps args
+        .or_else(|| parse_resume_id_from_ps(pid))?;
+
+    find_jsonl_by_session_id(&original_id)
+}
+
+/// Read a variable from a tmux session's environment table.
+fn read_tmux_env(session_name: &str, var: &str) -> Option<String> {
+    let output = std::process::Command::new("tmux")
+        .args(["show-environment", "-t", session_name, var])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+    // Output format: "VAR=value\n"
+    let line = String::from_utf8_lossy(&output.stdout);
+    line.trim().split_once('=').map(|(_, v)| v.to_string())
+}
+
+/// Parse `--resume <session-id>` from the process command line via ps.
+/// Fallback for sessions not created by `recon --resume`.
+fn parse_resume_id_from_ps(pid: i32) -> Option<String> {
+    let output = std::process::Command::new("ps")
+        .args(["-p", &pid.to_string(), "-o", "args="])
+        .output()
+        .ok()?;
+
+    let args = String::from_utf8_lossy(&output.stdout);
+    args.trim()
+        .split_whitespace()
+        .skip_while(|&a| a != "--resume")
+        .nth(1)
+        .map(|s| s.to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Find the JSONL file for a given session-id by scanning all project directories.
+fn find_jsonl_by_session_id(session_id: &str) -> Option<PathBuf> {
+    let projects_dir = dirs::home_dir()?.join(".claude").join("projects");
+    for entry in fs::read_dir(&projects_dir).ok()?.flatten() {
+        let candidate = entry.path().join(format!("{session_id}.jsonl"));
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+/// Find the cwd used by an existing session (by scanning its JSONL for a cwd entry).
+/// Used by the resume command to start the tmux session in the right directory.
+pub fn find_session_cwd(session_id: &str) -> Option<String> {
+    let projects_dir = dirs::home_dir()?.join(".claude").join("projects");
+    for entry in fs::read_dir(&projects_dir).ok()?.flatten() {
+        let jsonl_path = entry.path().join(format!("{session_id}.jsonl"));
+        if !jsonl_path.exists() {
+            continue;
+        }
+        let file = fs::File::open(&jsonl_path).ok()?;
+        let reader = std::io::BufReader::new(file);
+        for line in reader.lines().take(20).flatten() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
+                    return Some(cwd.to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Determine session status from file recency and token counts.

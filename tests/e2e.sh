@@ -4,15 +4,18 @@ set -euo pipefail
 RECON="$(cd "$(dirname "$0")/.." && pwd)/target/debug/recon"
 PASS=0
 FAIL=0
-TOTAL=6
+TOTAL=7
 
 # Random 4-char ID to avoid collisions with real sessions
 RID=$(head -c 100 /dev/urandom | LC_ALL=C tr -dc 'a-z0-9' | head -c 4)
 S_NEW="e2e-${RID}-new"
 S_INPUT="e2e-${RID}-input"
 S_TWIN="e2e-${RID}-twin"
+S_RESUME_ORIG="e2e-${RID}-res-orig"
+S_RESUME_NEW="e2e-${RID}-res-new"
 TMPDIR_NEW="/tmp/recon-e2e-${RID}"
 TMPDIR_INPUT="/tmp/recon-e2e-${RID}-input"
+TMPDIR_RESUME="/tmp/recon-e2e-${RID}-resume"
 TMPFILE="/tmp/recon-e2e-${RID}-testfile.txt"
 
 echo "Test run ID: $RID"
@@ -23,7 +26,7 @@ cleanup() {
     tmux list-sessions -F '#{session_name}' 2>/dev/null \
         | grep "^e2e-${RID}-" \
         | while read -r s; do tmux kill-session -t "$s" 2>/dev/null || true; done
-    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPFILE"
+    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPDIR_RESUME" "$TMPFILE"
 }
 trap cleanup EXIT
 
@@ -190,6 +193,63 @@ if wait_for_state "$S_INPUT" "Input" 30; then
     report pass "Input state detected for $S_INPUT"
 else
     report fail "Input state detected for $S_INPUT"
+fi
+
+# --- Test 7: Resume session shows original token count ---
+# Wraps claude in bash so the pane stays alive after exit, letting us read the
+# "Resume this session with: claude --resume <id>" message.
+CLAUDE_PATH="$(which claude)"
+mkdir -p "$TMPDIR_RESUME"
+tmux new-session -d -s "$S_RESUME_ORIG" -c "$TMPDIR_RESUME" \
+    "bash -c '$CLAUDE_PATH 2>&1; exec bash'"
+
+wait_for_state "$S_RESUME_ORIG" "New" 15 >/dev/null 2>&1 || true
+sleep 3
+
+# Do some work to accumulate tokens
+send_to_session "$S_RESUME_ORIG" "say exactly the words: recon resume test"
+wait_for_state "$S_RESUME_ORIG" "Idle" 30 >/dev/null 2>&1 || true
+
+TOKENS_BEFORE=$("$RECON" --json 2>/dev/null | jq -r \
+    --arg n "$S_RESUME_ORIG" \
+    '.sessions[] | select(.tmux_session == $n) | .total_input_tokens')
+
+# Exit claude with Ctrl+C — it prints "Resume this session with: claude --resume <id>"
+tmux send-keys -t "$S_RESUME_ORIG" C-c
+sleep 4
+
+# Parse the original session-id from the pane exit output
+ORIG_SESSION_ID=$(tmux capture-pane -t "$S_RESUME_ORIG" -p -S -200 2>/dev/null \
+    | grep -oE 'claude --resume [a-zA-Z0-9-]+' | tail -1 | awk '{print $NF}')
+
+if [[ -z "$ORIG_SESSION_ID" ]]; then
+    echo "  Could not parse resume session-id. Pane content:"
+    tmux capture-pane -t "$S_RESUME_ORIG" -p -S -10 2>/dev/null | sed 's/^/    /'
+    report fail "Resume: could not parse session-id from exit message (tokens_before=$TOKENS_BEFORE)"
+else
+    echo "  Original session-id: $ORIG_SESSION_ID (tokens before exit: $TOKENS_BEFORE)"
+
+    # Resume via recon --resume (no-attach: creates detached session, switch-client skips if inside tmux with no client)
+    # Use --name to control the session name for lookup
+    "$RECON" --resume "$ORIG_SESSION_ID" --name "$S_RESUME_NEW" 2>/dev/null || true
+
+    # Wait for the session file to be written and recon to refresh
+    sleep 8
+
+    TOKENS_RESUMED=$("$RECON" --json 2>/dev/null | jq -r \
+        --arg n "$S_RESUME_NEW" \
+        '.sessions[] | select(.tmux_session == $n) | .total_input_tokens')
+
+    if [[ -n "$TOKENS_RESUMED" ]] && \
+       [[ "$TOKENS_RESUMED" =~ ^[0-9]+$ ]] && \
+       (( TOKENS_RESUMED > 0 )); then
+        report pass "Resume: $S_RESUME_NEW shows ${TOKENS_RESUMED} tokens (original had ${TOKENS_BEFORE})"
+    else
+        echo "  Original tokens: $TOKENS_BEFORE, resumed tokens: '$TOKENS_RESUMED'"
+        "$RECON" --json 2>/dev/null | jq -r --arg n "$S_RESUME_NEW" \
+            '.sessions[] | select(.tmux_session == $n)' | sed 's/^/    /'
+        report fail "Resume: expected non-zero tokens for resumed session"
+    fi
 fi
 
 # --- Summary ---
