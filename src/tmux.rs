@@ -53,12 +53,7 @@ pub fn create_session(name: &str, cwd: &str) -> Result<String, String> {
         return Err("tmux new-session failed".to_string());
     }
 
-    // Keep the window alive after claude exits so the user can read the
-    // "Resume this session with: claude --resume <id>" message.
-    let _ = Command::new("tmux")
-        .args(["set-window-option", "-t", &session_name, "remain-on-exit", "on"])
-        .status();
-
+    keep_window_after_exit(&session_name);
     Ok(session_name)
 }
 
@@ -113,10 +108,7 @@ pub fn resume_session(session_id: &str, name: Option<&str>) -> Result<String, St
         return Err("tmux new-session failed".to_string());
     }
 
-    let _ = Command::new("tmux")
-        .args(["set-window-option", "-t", &session_name, "remain-on-exit", "on"])
-        .status();
-
+    keep_window_after_exit(&session_name);
     Ok(session_name)
 }
 
@@ -151,4 +143,23 @@ fn which_claude() -> Option<String> {
 /// Sanitize a string for use as a tmux session name (no dots or colons).
 fn sanitize_session_name(name: &str) -> String {
     name.replace('.', "-").replace(':', "-")
+}
+
+/// Keep the tmux window alive after the process exits (so the user can read the
+/// "Resume this session with: claude --resume <id>" message), then auto-close
+/// after 60 seconds so the user isn't stuck in a dead pane.
+fn keep_window_after_exit(session_name: &str) {
+    let _ = Command::new("tmux")
+        .args(["set-window-option", "-t", session_name, "remain-on-exit", "on"])
+        .status();
+
+    // Schedule auto-kill after 60s — enough time to read and copy the resume ID.
+    // The background sleep runs outside tmux so it survives even if the window
+    // isn't attached.
+    let kill_cmd = format!(
+        "sleep 60 && tmux kill-window -t '{session_name}' 2>/dev/null"
+    );
+    let _ = Command::new("sh")
+        .args(["-c", &format!("({kill_cmd}) &")])
+        .spawn();
 }
