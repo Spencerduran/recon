@@ -35,7 +35,7 @@ impl App {
             .map(|s| (s.session_id.clone(), s.clone()))
             .collect();
 
-        self.sessions = sessions;
+        self.sessions = sessions.into_iter().filter(|s| s.tmux_session.is_some()).collect();
 
         if self.selected >= self.sessions.len() && !self.sessions.is_empty() {
             self.selected = self.sessions.len() - 1;

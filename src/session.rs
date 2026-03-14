@@ -307,23 +307,25 @@ fn parse_jsonl(
     (total_input, total_output, model, last_activity, file_size)
 }
 
-/// Determine session status from process state.
+/// Determine session status from process state and JSONL.
 fn determine_status(stat: &str, jsonl_path: &Option<PathBuf>, _file_size: u64) -> SessionStatus {
-    if stat.contains('R') {
-        return SessionStatus::Working;
-    }
-
-    if stat.contains('S') {
-        if let Some(path) = jsonl_path {
-            if let Some(last_type) = read_last_entry_type(path) {
-                if last_type == "turn_duration" {
-                    return SessionStatus::Input;
+    if let Some(path) = jsonl_path {
+        if let Some(last_type) = read_last_entry_type(path) {
+            return match last_type.as_str() {
+                // turn_duration means claude finished its turn, waiting for user
+                "turn_duration" => SessionStatus::Input,
+                // user message sent, or assistant still streaming — claude is working
+                "user" | "assistant" => SessionStatus::Working,
+                _ => {
+                    // Fall back to process state
+                    if stat.contains('R') { SessionStatus::Working } else { SessionStatus::Idle }
                 }
-            }
+            };
         }
     }
 
-    SessionStatus::Idle
+    // No JSONL or empty — use process state
+    if stat.contains('R') { SessionStatus::Working } else { SessionStatus::Idle }
 }
 
 /// Read the last meaningful entry type from JSONL (reads from end).
