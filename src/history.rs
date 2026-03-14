@@ -171,7 +171,10 @@ pub fn run_resume_picker() -> io::Result<Option<(String, String)>> {
                             .map(|m| model::display_name(m).to_string())
                             .unwrap_or_else(|| "—".to_string());
 
-                        let tokens = format!("{}k", e.tokens / 1000);
+                        let window = e.model.as_deref()
+                            .map(model::context_window)
+                            .unwrap_or(200_000);
+                        let tokens = format!("{}k / {}k", e.tokens / 1000, window / 1000);
                         let exited = format_relative(&e.last_active);
 
                         let row = Row::new(vec![
