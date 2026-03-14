@@ -5,6 +5,7 @@ mod new_session;
 mod session;
 mod tmux;
 mod ui;
+mod view_ui;
 
 use std::io;
 use std::time::{Duration, Instant};
@@ -17,7 +18,7 @@ use crossterm::{
 use ratatui::prelude::CrosstermBackend;
 use ratatui::Terminal;
 
-use app::App;
+use app::{App, ViewMode};
 
 fn main() -> io::Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -99,8 +100,17 @@ fn main() -> io::Result<()> {
             println!("{}", app.to_json());
             return Ok(());
         }
+        Some("view") => {
+            // Fall through to TUI with view mode
+        }
         _ => {}
     }
+
+    let start_mode = if cmd == Some("view") {
+        ViewMode::View
+    } else {
+        ViewMode::Table
+    };
 
     // Default: TUI dashboard
     enable_raw_mode()?;
@@ -109,7 +119,7 @@ fn main() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal);
+    let result = run_app(&mut terminal, start_mode);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -122,15 +132,21 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> io::Result<()> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, start_mode: ViewMode) -> io::Result<()> {
     let mut app = App::new();
+    app.view_mode = start_mode;
     app.refresh();
 
     let refresh_interval = Duration::from_secs(2);
     let mut last_refresh = Instant::now();
 
     loop {
-        terminal.draw(|f| ui::render(f, &app))?;
+        terminal.draw(|f| {
+            match app.view_mode {
+                ViewMode::Table => ui::render(f, &app),
+                ViewMode::View => view_ui::render(f, &app),
+            }
+        })?;
 
         if event::poll(Duration::from_millis(200))? {
             if let Event::Key(key) = event::read()? {

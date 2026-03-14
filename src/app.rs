@@ -5,11 +5,18 @@ use crossterm::event::{KeyCode, KeyEvent};
 use crate::session::{self, Session};
 use crate::tmux;
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum ViewMode {
+    Table,
+    View,
+}
+
 pub struct App {
     pub sessions: Vec<Session>,
     pub selected: usize,
     pub effort_level: String,
     pub should_quit: bool,
+    pub view_mode: ViewMode,
     prev_sessions: HashMap<String, Session>,
 }
 
@@ -21,6 +28,7 @@ impl App {
             selected: 0,
             effort_level,
             should_quit: false,
+            view_mode: ViewMode::Table,
             prev_sessions: HashMap::new(),
         }
     }
@@ -44,8 +52,16 @@ impl App {
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
+        match self.view_mode {
+            ViewMode::Table => self.handle_key_table(key),
+            ViewMode::View => self.handle_key_view(key),
+        }
+    }
+
+    fn handle_key_table(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Char('v') => self.view_mode = ViewMode::View,
             KeyCode::Char('j') | KeyCode::Down => {
                 if !self.sessions.is_empty() {
                     self.selected = (self.selected + 1).min(self.sessions.len() - 1);
@@ -75,6 +91,15 @@ impl App {
             KeyCode::Char('r') => {
                 self.refresh();
             }
+            _ => {}
+        }
+    }
+
+    fn handle_key_view(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
+            KeyCode::Char('v') => self.view_mode = ViewMode::Table,
+            KeyCode::Char('r') => self.refresh(),
             _ => {}
         }
     }
