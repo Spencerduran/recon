@@ -141,12 +141,12 @@ fn find_resumable_sessions() -> Vec<ResumeEntry> {
                             continue;
                         }
 
-                        // Derive name from the project directory
                         let cwd = decode_project_path(&dir_entry.path());
 
                         entries.push(ResumeEntry {
+                            // No tmux name available from JSONL — use short session ID
+                            name: session_id[..8.min(session_id.len())].to_string(),
                             session_id,
-                            name: dir_name(&cwd),
                             cwd,
                             model,
                             tokens,
