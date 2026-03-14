@@ -22,7 +22,7 @@ Creatures are rendered as colored pixel art using half-block characters. Working
 | **New** | Egg with spots | Cream |
 
 - **Rooms** group agents by working directory (2×2 grid, paginated)
-- **Zoom** into a room with `1`-`4`, page with `h`/`l`
+- **Zoom** into a room with `1`-`4`, page with `j`/`k`
 - **Context bar** per agent with green/yellow/red coloring
 
 ### Table View (default)
@@ -124,7 +124,11 @@ recon --resume <session-id> --name foo # Resume with a custom tmux session name
 | Key | Action |
 |---|---|
 | `1`-`4` | Zoom into room |
-| `h` / `l` | Previous / next page |
+| `j` / `k` | Previous / next page |
+| `h` / `l` | Select agent (when zoomed) |
+| `Enter` | Switch to selected agent (when zoomed) |
+| `x` | Kill selected agent (when zoomed) |
+| `n` | New session in room (when zoomed) |
 | `Esc` | Zoom out (or quit) |
 | `v` | Switch to table view |
 | `r` | Force refresh |
