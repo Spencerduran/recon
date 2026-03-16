@@ -12,8 +12,6 @@ Run multiple Claude Code sessions in tmux, then manage them all without ever lea
 
 A visual dashboard where each agent is a pixel-art creature living in a room. Designed for a side monitor — glance over and instantly see who's working, sleeping, or needs attention.
 
-![Tamagotchi View](assets/view.png)
-
 Creatures are rendered as colored pixel art using half-block characters. Working and Input creatures animate; Idle and New stay still.
 
 | State | Creature | Color |
