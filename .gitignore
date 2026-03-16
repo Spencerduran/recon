@@ -1,2 +1,4 @@
 /target
-/demo
+/demo/out/
+/.worktrees/
+demo/.DS_Store
