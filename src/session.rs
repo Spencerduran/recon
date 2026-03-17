@@ -256,24 +256,10 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 .filter(|s| !s.jsonl_path.as_os_str().is_empty())
                 .map(|s| s.jsonl_path.clone());
             let resume_path = cached.or_else(|| find_jsonl_for_resumed_session(&live.tmux_session, live.pid));
-            // If the resume path points to a JSONL whose name differs from both the
-            // session_id_key AND hasn't been modified recently, /reset likely happened.
-            // Check: if the resume JSONL filename stem != session_id_key AND the
-            // session file's session-id also != the resume stem, this is a stale
-            // resume after /reset. Skip it so the CWD fallback can find the real JSONL.
+            // Skip the resume path if a /clear successor exists in the same
+            // project dir — the resumed JSONL is stale, /clear created a new one.
             resume_path.filter(|p| {
-                let stem = p.file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                // If the JSONL name matches the session-id, it's a straightforward
-                // resumed session (not yet /reset).
-                stem == *session_id_key
-                    // Otherwise check if the JSONL was modified in the last 30s
-                    // (still actively being written to).
-                    || p.metadata().ok()
-                        .and_then(|m| m.modified().ok())
-                        .and_then(|t| t.elapsed().ok())
-                        .map_or(false, |age| age < Duration::from_secs(30))
+                find_clear_successor(&live.pane_cwd, &matched_session_ids, p).is_none()
             })
         } else {
             None
@@ -789,13 +775,9 @@ fn encode_project_path(cwd: &str) -> String {
     cwd.replace('/', "-").replace('.', "-")
 }
 
-/// Find the most recently modified JSONL in the project directory for `cwd`
-/// whose session ID is not already claimed by another live session.
-///
 /// Find the newest unmatched JSONL in the project directory for `cwd` that was
-/// created by `/clear` (has `<command-name>/clear</command-name>` in its first
-/// few lines) and is newer than `current_jsonl`.
-/// Returns None if no such file exists.
+/// created by `/clear` (has the `/clear` command marker in its first few lines)
+/// and is newer than `current_jsonl`. Returns None if no such file exists.
 fn find_clear_successor(
     cwd: &str,
     matched_session_ids: &std::collections::HashSet<String>,
