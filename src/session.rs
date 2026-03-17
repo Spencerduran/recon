@@ -717,10 +717,13 @@ fn determine_status(_path: &Path, input_tokens: u64, output_tokens: u64, tmux_se
 
 /// Determine status by inspecting the Claude Code TUI status bar.
 ///
-/// The last non-empty line in the pane is always the status bar:
+/// The last non-empty line in the pane is typically the status bar:
 ///   "esc to interrupt"  → agent is streaming or running a tool
 ///   "Esc to cancel"     → permission prompt waiting for user input
-///   anything else       → idle, waiting for user input
+///
+/// Some permission prompts use a selection menu instead of "Esc to cancel"
+/// (e.g. fetch permissions). We scan a few lines back to detect those via
+/// the "❯ N." selection arrow pattern (e.g. "❯ 2. Yes, and don't ask again").
 fn pane_status(session_name: &str) -> SessionStatus {
     let output = match std::process::Command::new("tmux")
         .args(["capture-pane", "-t", session_name, "-p"])
@@ -732,18 +735,37 @@ fn pane_status(session_name: &str) -> SessionStatus {
 
     let content = String::from_utf8_lossy(&output.stdout);
 
+    let mut lines_checked = 0;
     for line in content.lines().rev() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        if trimmed.contains("esc to interrupt") {
-            return SessionStatus::Working;
+
+        // Status bar is always the very last non-empty line
+        if lines_checked == 0 {
+            if trimmed.contains("esc to interrupt") {
+                return SessionStatus::Working;
+            }
+            if trimmed.contains("Esc to cancel") {
+                return SessionStatus::Input;
+            }
         }
-        if trimmed.contains("Esc to cancel") {
-            return SessionStatus::Input;
+
+        // Selection-style permission prompts show "❯ N." (arrow + digit)
+        // e.g. " ❯ 2. Yes, and don't ask again for docs.asciinema.org"
+        // This is distinct from the regular prompt "❯ user text".
+        if let Some(pos) = trimmed.find('❯') {
+            let after = trimmed[pos + '❯'.len_utf8()..].trim_start();
+            if after.starts_with(|c: char| c.is_ascii_digit()) {
+                return SessionStatus::Input;
+            }
         }
-        return SessionStatus::Idle;
+
+        lines_checked += 1;
+        if lines_checked >= 5 {
+            break;
+        }
     }
 
     SessionStatus::Idle
