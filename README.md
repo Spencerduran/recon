@@ -21,7 +21,7 @@ Creatures are rendered as colored pixel art using half-block characters. Working
 | **Idle** | Sleeping blob with Zzz | Blue-grey |
 | **New** | Egg with spots | Cream |
 
-- **Rooms** group agents by working directory (2×2 grid, paginated)
+- **Rooms** group agents by git repository — worktrees of the same repo share a room, while monorepo sub-projects get their own (e.g. `myapp` vs `myapp › tools/cli`) (2×2 grid, paginated)
 - **Zoom** into a room with `1`-`4`, page with `j`/`k`
 - **Context bar** per agent with green/yellow/red coloring
 
