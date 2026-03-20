@@ -14,11 +14,13 @@ S_RESUME_ORIG="e2e-${RID}-res-orig"
 S_RESUME_NEW="e2e-${RID}-res-new"
 S_RESET="e2e-${RID}-reset"
 S_WORKING="e2e-${RID}-working"
+S_MULTI="e2e-${RID}-multi"
 TMPDIR_NEW="/tmp/recon-e2e-${RID}"
 TMPDIR_INPUT="/tmp/recon-e2e-${RID}-input"
 TMPDIR_RESUME="/tmp/recon-e2e-${RID}-resume"
 TMPDIR_RESET="/tmp/recon-e2e-${RID}-reset"
 TMPDIR_WORKING="/tmp/recon-e2e-${RID}-working"
+TMPDIR_MULTI="/tmp/recon-e2e-${RID}-multi"
 TMPFILE="/tmp/recon-e2e-${RID}-testfile.txt"
 FIXTURES="$(cd "$(dirname "$0")" && pwd)/fixtures"
 
@@ -27,7 +29,7 @@ CLAUDE_EFFORT="${CLAUDE_EFFORT:-low}"
 CLAUDE_FLAGS="--model $CLAUDE_MODEL --effort $CLAUDE_EFFORT"
 
 # --- Test selection ---
-ALL_TESTS=(new_state working_state idle_state token_stability sort_order input_state resume_tokens resume_idempotency reset_activity working_sonnet)
+ALL_TESTS=(new_state working_state idle_state token_stability sort_order input_state resume_tokens resume_idempotency reset_activity working_sonnet multi_pane_status pane_target_json)
 RUN_TESTS=("$@")
 
 should_run() {
@@ -59,7 +61,7 @@ cleanup() {
     tmux list-sessions -F '#{session_name}' 2>/dev/null \
         | grep "^e2e-${RID}-" \
         | while read -r s; do tmux kill-session -t "$s" 2>/dev/null || true; done
-    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPDIR_RESUME" "$TMPDIR_RESET" "$TMPDIR_WORKING" "$TMPFILE"
+    rm -rf "$TMPDIR_NEW" "$TMPDIR_INPUT" "$TMPDIR_RESUME" "$TMPDIR_RESET" "$TMPDIR_WORKING" "$TMPDIR_MULTI" "$TMPFILE"
 }
 trap cleanup EXIT
 
@@ -407,6 +409,53 @@ if should_run "working_sonnet"; then
         report pass "Working state detected for $S_WORKING (sonnet reading files)"
     else
         report fail "Working state detected for $S_WORKING (sonnet reading files)"
+    fi
+fi
+
+# --- Test 11: Multi-pane status (Claude pane is not the active pane) ---
+# The bug: capture-pane -t <session> reads the active pane, not the Claude pane.
+# To expose this, Claude must be in a state that differs from what bash looks like.
+# We put Claude into Working state and make the bash pane active — without the fix,
+# recon reads the bash pane (Idle) instead of the Claude pane (Working).
+if should_run "multi_pane_status"; then
+    mkdir -p "$TMPDIR_MULTI"
+    cp "$FIXTURES"/*.txt "$TMPDIR_MULTI/"
+    create_session "$S_MULTI" "$TMPDIR_MULTI"
+    wait_for_state "$S_MULTI" "New" 15 >/dev/null 2>&1 || true
+
+    # Split the window — creates pane 1 running bash
+    tmux split-window -t "$S_MULTI" "bash"
+    # Make the bash pane (pane 1) the active pane
+    tmux select-pane -t "$S_MULTI:0.1"
+
+    # Send a long prompt to the Claude pane specifically (pane 0, not the active pane)
+    sleep 3
+    tmux send-keys -t "$S_MULTI:0.0" "read all .txt files in this directory and write a combined summary to summary.txt" Enter
+
+    if wait_for_state "$S_MULTI" "Working" 20; then
+        report pass "Multi-pane status: Working detected despite bash pane being active"
+    else
+        report fail "Multi-pane status: expected Working but got '$(get_state "$S_MULTI")' (reading wrong pane)"
+    fi
+fi
+
+
+# --- Test 13: JSON output includes pane_target field ---
+if should_run "pane_target_json"; then
+    # Ensure we have a session to inspect
+    if ! tmux has-session -t "$S_MULTI" 2>/dev/null; then
+        create_session "$S_MULTI" "$TMPDIR_MULTI"
+        wait_for_state "$S_MULTI" "New" 15 >/dev/null 2>&1 || true
+    fi
+
+    pane_target=$("$RECON" json 2>/dev/null | jq -r \
+        --arg name "$S_MULTI" \
+        '.sessions[] | select(.tmux_session == $name) | .pane_target')
+
+    if [[ -n "$pane_target" && "$pane_target" != "null" ]] && echo "$pane_target" | grep -qE '^[^:]+:[0-9]+\.[0-9]+$'; then
+        report pass "pane_target JSON: field present with correct format ($pane_target)"
+    else
+        report fail "pane_target JSON: expected session:window.pane format but got '$pane_target'"
     fi
 fi
 
