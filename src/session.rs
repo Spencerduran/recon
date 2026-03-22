@@ -169,7 +169,9 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                             prev.and_then(|s| s.effort.clone()),
                             prev.and_then(|s| s.last_activity.clone()),
                         );
-                        let cwd = info.cwd.unwrap_or_else(|| decode_project_path(&project_dir));
+                        let cwd = info.cwd
+                            .or_else(|| prev.map(|s| s.cwd.clone()))
+                            .unwrap_or_else(|| decode_project_path(&project_dir));
                         let (project_name, relative_dir, branch) = git_project_info(&cwd);
                         existing.project_name = project_name;
                         existing.relative_dir = relative_dir;
@@ -201,6 +203,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
 
             let cwd = info
                 .cwd
+                .or_else(|| prev.map(|s| s.cwd.clone()))
                 .unwrap_or_else(|| decode_project_path(&project_dir));
             let (project_name, relative_dir, branch) = git_project_info(&cwd);
 
@@ -549,8 +552,15 @@ fn fetch_relative_dir(cwd: &str) -> Option<String> {
         _ => return None,
     };
 
-    let relative = Path::new(cwd)
-        .strip_prefix(Path::new(&toplevel))
+    // Canonicalize both paths to resolve symlinks (e.g. /tmp → /private/tmp on macOS)
+    let cwd_resolved = Path::new(cwd)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(cwd));
+    let top_resolved = Path::new(&toplevel)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(&toplevel));
+    let relative = cwd_resolved
+        .strip_prefix(&top_resolved)
         .unwrap_or(Path::new(""));
 
     if relative.as_os_str().is_empty() || relative == Path::new(".") {
