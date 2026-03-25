@@ -90,6 +90,17 @@ fn main() -> io::Result<()> {
                 }
             }
         }
+        Some(Command::Done) => {
+            let mut app = App::new();
+            app.refresh();
+            if let Some(session) = app.sessions.iter().find(|s| {
+                matches!(s.status, session::SessionStatus::Idle | session::SessionStatus::Input)
+            }) {
+                if let Some(target) = &session.pane_target {
+                    tmux::switch_to_pane(target);
+                }
+            }
+        }
         Some(Command::Json) => {
             let mut app = App::new();
             app.refresh();

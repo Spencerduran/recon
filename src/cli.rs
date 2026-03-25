@@ -22,6 +22,8 @@ pub enum Command {
     },
     /// Jump directly to the next agent waiting for input
     Next,
+    /// Jump to the first agent that needs attention (idle or waiting for input)
+    Done,
     /// Resume a past session (interactive picker, or by ID)
     Resume {
         /// Session ID to resume directly (skips the picker)
