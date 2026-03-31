@@ -16,7 +16,11 @@ pub fn render(frame: &mut Frame, app: &App) {
     ])
     .split(frame.area());
 
-    render_table(frame, app, chunks[0]);
+    if frame.area().width < 100 {
+        render_cards(frame, app, chunks[0]);
+    } else {
+        render_table(frame, app, chunks[0]);
+    }
     render_footer(frame, chunks[1]);
 }
 
@@ -142,6 +146,89 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
         );
 
     frame.render_widget(table, area);
+}
+
+fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
+    let mut lines: Vec<Line> = vec![Line::from("")];
+
+    for (i, session) in app.sessions.iter().enumerate() {
+        let (icon, status_label, status_color) = match session.status {
+            SessionStatus::New     => ("·", "New",     Color::DarkGray),
+            SessionStatus::Working => ("●", "Working", Color::Cyan),
+            SessionStatus::Idle    => ("○", "Idle",    Color::Yellow),
+            SessionStatus::Input   => ("⧗", "Input",   Color::Yellow),
+        };
+
+        let line_style = if session.status == SessionStatus::Input {
+            Style::default().bg(Color::Rgb(50, 40, 0))
+        } else if i == app.selected {
+            Style::default().bg(Color::Rgb(40, 40, 60))
+        } else {
+            Style::default()
+        };
+
+        let activity = session
+            .last_activity
+            .as_deref()
+            .map(format_timestamp)
+            .unwrap_or_else(|| "—".to_string());
+
+        let cwd = shorten_home(&session.cwd);
+        let model = session.model_display();
+        let tokens = session.token_display();
+
+        // Line 1: status icon + session name
+        lines.push(
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled(icon, Style::default().fg(status_color)),
+                Span::raw(" "),
+                Span::styled(
+                    session.project_name.clone(),
+                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+                ),
+            ])
+            .style(line_style),
+        );
+
+        // Line 2: status label · token usage · age
+        lines.push(
+            Line::from(vec![
+                Span::raw("    "),
+                Span::styled(status_label, Style::default().fg(status_color)),
+                Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
+                Span::raw(tokens),
+                Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
+                Span::raw(activity),
+            ])
+            .style(line_style),
+        );
+
+        // Line 3: directory · model
+        lines.push(
+            Line::from(vec![
+                Span::raw("    "),
+                Span::styled(cwd, Style::default().fg(Color::DarkGray)),
+                Span::styled("  ·  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(model, Style::default().fg(Color::DarkGray)),
+            ])
+            .style(line_style),
+        );
+
+        lines.push(Line::from(""));
+    }
+
+    if app.sessions.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled("  no sessions", Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" recon — Claude Code Sessions ");
+
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
