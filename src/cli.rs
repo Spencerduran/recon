@@ -6,6 +6,9 @@ use clap::{Parser, Subcommand};
 pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
+    /// Run in sidebar mode (stay open after session selection)
+    #[arg(long, global = true)]
+    pub sidebar: bool,
 }
 
 #[derive(Subcommand)]

@@ -118,21 +118,21 @@ fn main() -> io::Result<()> {
             } else {
                 ViewMode::Table
             };
-            run_tui(start_mode)?;
+            run_tui(start_mode, cli.sidebar)?;
         }
     }
 
     Ok(())
 }
 
-fn run_tui(start_mode: ViewMode) -> io::Result<()> {
+fn run_tui(start_mode: ViewMode, force_sidebar: bool) -> io::Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, start_mode);
+    let result = run_app(&mut terminal, start_mode, force_sidebar);
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
@@ -145,10 +145,10 @@ fn run_tui(start_mode: ViewMode) -> io::Result<()> {
     Ok(())
 }
 
-fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, start_mode: ViewMode) -> io::Result<()> {
+fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, start_mode: ViewMode, force_sidebar: bool) -> io::Result<()> {
     let mut app = App::new();
     app.view_mode = start_mode;
-    app.sidebar_mode = terminal.size()?.width < 100;
+    app.sidebar_mode = force_sidebar || terminal.size()?.width < 100;
     app.refresh();
 
     let refresh_interval = Duration::from_secs(2);
