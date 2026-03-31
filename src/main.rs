@@ -148,6 +148,7 @@ fn run_tui(start_mode: ViewMode) -> io::Result<()> {
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, start_mode: ViewMode) -> io::Result<()> {
     let mut app = App::new();
     app.view_mode = start_mode;
+    app.sidebar_mode = terminal.size()?.width < 100;
     app.refresh();
 
     let refresh_interval = Duration::from_secs(2);
