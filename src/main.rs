@@ -93,11 +93,28 @@ fn main() -> io::Result<()> {
         Some(Command::Done) => {
             let mut app = App::new();
             app.refresh();
-            if let Some(session) = app.sessions.iter().find(|s| {
-                matches!(s.status, session::SessionStatus::Idle | session::SessionStatus::Input)
-            }) {
-                if let Some(target) = &session.pane_target {
-                    tmux::switch_to_pane(target);
+            let candidates: Vec<&str> = app
+                .sessions
+                .iter()
+                .filter(|s| {
+                    matches!(s.status, session::SessionStatus::Idle | session::SessionStatus::Input)
+                })
+                .filter_map(|s| s.pane_target.as_deref())
+                .collect();
+            if !candidates.is_empty() {
+                let cursor_path = dirs::home_dir()
+                    .map(|h| h.join(".local").join("state").join("recon").join("done_cursor"));
+                let last = cursor_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok());
+                let last = last.as_deref().map(str::trim);
+                let start = last
+                    .and_then(|l| candidates.iter().position(|t| *t == l))
+                    .map(|i| (i + 1) % candidates.len())
+                    .unwrap_or(0);
+                let target = candidates[start];
+                tmux::switch_to_pane(target);
+                if let Some(path) = cursor_path {
+                    let _ = std::fs::create_dir_all(path.parent().unwrap());
+                    let _ = std::fs::write(path, target);
                 }
             }
         }
