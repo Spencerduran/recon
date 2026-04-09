@@ -161,12 +161,15 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         // Group header when tmux session changes.
         if tmux_name != current_group {
             current_group = tmux_name;
-            let label = tmux_name.unwrap_or("(no tmux session)");
+            let label = format!(" {} ", tmux_name.unwrap_or("(no tmux session)"));
+            let inner_width = area.width.saturating_sub(2) as usize; // subtract block borders
+            let fill_total = inner_width.saturating_sub(label.len());
+            let fill_left = fill_total / 2;
+            let fill_right = fill_total - fill_left;
             lines.push(Line::from(vec![
-                Span::styled(
-                    format!("  {label}"),
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                ),
+                Span::styled("─".repeat(fill_left), Style::default().fg(Color::DarkGray)),
+                Span::styled(label, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("─".repeat(fill_right), Style::default().fg(Color::DarkGray)),
             ]));
         }
 
