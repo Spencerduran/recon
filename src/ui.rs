@@ -149,9 +149,39 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
-    let mut lines: Vec<Line> = vec![Line::from("")];
+    // Sort by tmux_session (stable by activity within each group).
+    let mut order: Vec<usize> = (0..app.sessions.len()).collect();
+    order.sort_by(|&a, &b| {
+        app.sessions[a].tmux_session.cmp(&app.sessions[b].tmux_session)
+    });
 
-    for (i, session) in app.sessions.iter().enumerate() {
+    // Visual position of the selected session (used for scroll).
+    let visual_selected = order.iter().position(|&i| i == app.selected).unwrap_or(0);
+
+    let mut lines: Vec<Line> = vec![Line::from("")];
+    // Track the line index where each visual card starts (for scroll).
+    let mut card_line_starts: Vec<usize> = Vec::new();
+    let mut current_group: Option<&str> = None;
+
+    for &idx in &order {
+        let session = &app.sessions[idx];
+
+        let tmux_name = session.tmux_session.as_deref();
+
+        // Group header when tmux session changes.
+        if tmux_name != current_group {
+            current_group = tmux_name;
+            let label = tmux_name.unwrap_or("(no tmux session)");
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!("  {label}"),
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+        }
+
+        card_line_starts.push(lines.len());
+
         // Colors intentionally differ from render_table: Idle→yellow (same as Input,
         // both are prefix+u jump targets), Working→cyan, New→dim gray.
         let (icon, status_label, status_color) = match session.status {
@@ -163,7 +193,7 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
 
         let line_style = if session.status == SessionStatus::Input {
             Style::default().bg(Color::Rgb(50, 40, 0))
-        } else if i == app.selected {
+        } else if idx == app.selected {
             Style::default().bg(Color::Rgb(40, 40, 60))
         } else {
             Style::default()
@@ -179,19 +209,24 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         let model = session.model_display();
         let tokens = session.token_display();
 
-        // Line 1: status icon + session name
-        lines.push(
-            Line::from(vec![
-                Span::raw("  "),
-                Span::styled(icon, Style::default().fg(status_color)),
-                Span::raw(" "),
-                Span::styled(
-                    session.project_name.as_str(),
-                    Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-                ),
-            ])
-            .style(line_style),
-        );
+        // Line 1: status icon + project name + tmux session
+        let mut title_spans = vec![
+            Span::raw("  "),
+            Span::styled(icon, Style::default().fg(status_color)),
+            Span::raw(" "),
+            Span::styled(
+                session.project_name.as_str(),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ),
+        ];
+        if let Some(name) = tmux_name {
+            title_spans.push(Span::styled("  ", Style::default()));
+            title_spans.push(Span::styled(
+                name.to_string(),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        lines.push(Line::from(title_spans).style(line_style));
 
         // Line 2: status label · token usage · age
         lines.push(
@@ -230,11 +265,11 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         .borders(Borders::ALL)
         .title(" recon — Claude Code Sessions ");
 
-    let visible_lines = area.height.saturating_sub(2) as usize; // subtract block borders
+    let visible_lines = area.height.saturating_sub(2) as usize;
     let card_height = 4usize; // 3 content lines + 1 blank separator
-    let selected_top = app.selected * card_height + 1; // +1 for leading blank line
-    let scroll_offset = if selected_top + card_height > visible_lines {
-        (selected_top + card_height).saturating_sub(visible_lines) as u16
+    let selected_start = card_line_starts.get(visual_selected).copied().unwrap_or(0);
+    let scroll_offset = if selected_start + card_height > visible_lines {
+        (selected_start + card_height).saturating_sub(visible_lines) as u16
     } else {
         0u16
     };
