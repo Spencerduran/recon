@@ -43,7 +43,7 @@ impl App {
     }
 
     pub fn refresh(&mut self) {
-        let sessions: Vec<Session> = session::discover_sessions(&self.prev_sessions)
+        let mut sessions: Vec<Session> = session::discover_sessions(&self.prev_sessions)
             .into_iter()
             .filter(|s| s.tmux_session.is_some())
             .collect();
@@ -52,6 +52,13 @@ impl App {
             .iter()
             .map(|s| (s.session_id.clone(), s.clone()))
             .collect();
+
+        if self.sidebar_mode {
+            sessions.sort_by(|a, b| {
+                a.tmux_session.cmp(&b.tmux_session)
+                    .then(b.last_activity.cmp(&a.last_activity))
+            });
+        }
 
         self.sessions = sessions;
 

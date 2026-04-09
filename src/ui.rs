@@ -149,22 +149,12 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
-    // Sort by tmux_session (stable by activity within each group).
-    let mut order: Vec<usize> = (0..app.sessions.len()).collect();
-    order.sort_by(|&a, &b| {
-        app.sessions[a].tmux_session.cmp(&app.sessions[b].tmux_session)
-    });
-
-    // Visual position of the selected session (used for scroll).
-    let visual_selected = order.iter().position(|&i| i == app.selected).unwrap_or(0);
-
     let mut lines: Vec<Line> = vec![Line::from("")];
-    // Track the line index where each visual card starts (for scroll).
+    // Track the line index where each card starts (for scroll, since group headers vary layout).
     let mut card_line_starts: Vec<usize> = Vec::new();
     let mut current_group: Option<&str> = None;
 
-    for &idx in &order {
-        let session = &app.sessions[idx];
+    for (i, session) in app.sessions.iter().enumerate() {
 
         let tmux_name = session.tmux_session.as_deref();
 
@@ -193,7 +183,7 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
 
         let line_style = if session.status == SessionStatus::Input {
             Style::default().bg(Color::Rgb(50, 40, 0))
-        } else if idx == app.selected {
+        } else if i == app.selected {
             Style::default().bg(Color::Rgb(40, 40, 60))
         } else {
             Style::default()
@@ -267,7 +257,7 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
 
     let visible_lines = area.height.saturating_sub(2) as usize;
     let card_height = 4usize; // 3 content lines + 1 blank separator
-    let selected_start = card_line_starts.get(visual_selected).copied().unwrap_or(0);
+    let selected_start = card_line_starts.get(app.selected).copied().unwrap_or(0);
     let scroll_offset = if selected_start + card_height > visible_lines {
         (selected_start + card_height).saturating_sub(visible_lines) as u16
     } else {
