@@ -17,7 +17,17 @@ pub fn render(frame: &mut Frame, app: &App) {
     .split(frame.area());
 
     if frame.area().width < 100 {
-        render_cards(frame, app, chunks[0]);
+        if !app.active_todos.is_empty() {
+            let todo_height = (app.active_todos.len() as u16 + 2).min(8);
+            let v = Layout::vertical([
+                Constraint::Min(4),
+                Constraint::Length(todo_height),
+            ]).split(chunks[0]);
+            render_cards(frame, app, v[0]);
+            render_todos(frame, app, v[1]);
+        } else {
+            render_cards(frame, app, chunks[0]);
+        }
     } else {
         render_table(frame, app, chunks[0]);
     }
@@ -46,7 +56,14 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
         .iter()
         .enumerate()
         .map(|(i, session)| {
-            let num = format!(" {} ", i + 1);
+            let is_active = session.pane_target.as_deref()
+                .map(|t| app.active_pane_targets.iter().any(|a| a == t))
+                .unwrap_or(false);
+            let num = if is_active {
+                " ❯❯".to_string()
+            } else {
+                format!(" {} ", i + 1)
+            };
 
             let tmux_name = session
                 .tmux_session
@@ -203,8 +220,16 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         let tokens = session.token_display();
 
         // Line 1: status icon + project name + tmux session
+        let is_active = session.pane_target.as_deref()
+            .map(|t| app.active_pane_targets.iter().any(|a| a == t))
+            .unwrap_or(false);
+        let prefix = if is_active {
+            Span::styled("❯❯", Style::default().fg(Color::White))
+        } else {
+            Span::raw("  ")
+        };
         let mut title_spans = vec![
-            Span::raw("  "),
+            prefix,
             Span::styled(icon, Style::default().fg(status_color)),
             Span::raw(" "),
             Span::styled(
@@ -285,6 +310,28 @@ fn render_footer(frame: &mut Frame, area: ratatui::layout::Rect) {
         Span::raw(" quit"),
     ]));
     frame.render_widget(footer, area);
+}
+
+fn render_todos(frame: &mut Frame, app: &App, area: Rect) {
+    use crate::todos::TodoStatus;
+    let title = format!(" Todos ({}) ", app.active_todos.len());
+    let max_content = area.width.saturating_sub(4) as usize;
+    let lines: Vec<Line> = app.active_todos.iter().map(|t| {
+        let (icon, color) = match t.status {
+            TodoStatus::InProgress => ("▶", Color::Cyan),
+            TodoStatus::Pending    => ("○", Color::DarkGray),
+            TodoStatus::Completed  => ("✓", Color::DarkGray),
+        };
+        let content: String = t.content.chars().take(max_content).collect();
+        Line::from(vec![
+            Span::raw(" "),
+            Span::styled(icon, Style::default().fg(color)),
+            Span::raw(" "),
+            Span::raw(content),
+        ])
+    }).collect();
+    let block = Block::default().borders(Borders::ALL).title(title);
+    frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
 /// Replace home directory prefix with ~.

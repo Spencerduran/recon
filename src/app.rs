@@ -17,6 +17,8 @@ pub struct App {
     pub should_quit: bool,
     pub sidebar_mode: bool,
     pub view_mode: ViewMode,
+    pub active_pane_targets: Vec<String>,
+    pub active_todos: Vec<crate::todos::TodoItem>,
     pub tick: u64,
     pub view_page: usize,
     pub view_zoomed_room: Option<String>, // room name when zoomed in
@@ -33,6 +35,8 @@ impl App {
             should_quit: false,
             sidebar_mode: false,
             view_mode: ViewMode::Table,
+            active_pane_targets: tmux::sibling_pane_targets(),
+            active_todos: Vec::new(),
             tick: 0,
             view_page: 0,
             view_zoomed_room: None,
@@ -62,9 +66,32 @@ impl App {
 
         self.sessions = sessions;
 
+        let new_active = tmux::sibling_pane_targets();
+        let active_changed = new_active != self.active_pane_targets;
+        self.active_pane_targets = new_active;
+
+        // Sync cursor to the active pane only when it changes (e.g. after switching sessions).
+        // This avoids snapping back over manual j/k navigation.
+        if active_changed {
+            if let Some(idx) = self.sessions.iter().position(|s| {
+                s.pane_target.as_deref()
+                    .map(|t| self.active_pane_targets.iter().any(|a| a == t))
+                    .unwrap_or(false)
+            }) {
+                self.selected = idx;
+            }
+        }
+
         if self.selected >= self.sessions.len() && !self.sessions.is_empty() {
             self.selected = self.sessions.len() - 1;
         }
+
+        self.active_todos = self.sessions.iter()
+            .find(|s| s.pane_target.as_deref()
+                .map(|t| self.active_pane_targets.iter().any(|a| a == t))
+                .unwrap_or(false))
+            .map(|s| crate::todos::load_for_session(&s.session_id, &s.task_items))
+            .unwrap_or_default();
     }
 
     pub fn advance_tick(&mut self) {

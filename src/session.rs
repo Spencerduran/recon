@@ -46,6 +46,7 @@ pub struct Session {
     pub started_at: u64,
     pub jsonl_path: PathBuf,
     pub last_file_size: u64,
+    pub task_items: Vec<crate::todos::TodoItem>,
 }
 
 impl Session {
@@ -169,6 +170,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                             prev.and_then(|s| s.model.clone()),
                             prev.and_then(|s| s.effort.clone()),
                             prev.and_then(|s| s.last_activity.clone()),
+                            prev.map(|s| s.task_items.clone()).unwrap_or_default(),
                         );
                         let cwd = info.cwd
                             .or_else(|| prev.map(|s| s.cwd.clone()))
@@ -185,6 +187,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                         existing.last_activity = info.last_activity;
                         existing.jsonl_path = path;
                         existing.last_file_size = info.file_size;
+                        existing.task_items = info.task_items;
                     }
                 }
                 continue;
@@ -200,6 +203,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 prev.and_then(|s| s.model.clone()),
                 prev.and_then(|s| s.effort.clone()),
                 prev.and_then(|s| s.last_activity.clone()),
+                prev.map(|s| s.task_items.clone()).unwrap_or_default(),
             );
 
             let cwd = info
@@ -235,6 +239,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 started_at: live.started_at,
                 jsonl_path: path,
                 last_file_size: info.file_size,
+                task_items: info.task_items,
             });
         }
     }
@@ -303,6 +308,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 prev.and_then(|s| s.model.clone()),
                 prev.and_then(|s| s.effort.clone()),
                 prev.and_then(|s| s.last_activity.clone()),
+                prev.map(|s| s.task_items.clone()).unwrap_or_default(),
             );
 
             let cwd = info.cwd.clone().unwrap_or_else(|| live.pane_cwd.clone());
@@ -333,6 +339,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 started_at: live.started_at,
                 jsonl_path: path,
                 last_file_size: info.file_size,
+                task_items: info.task_items,
             });
         } else {
             // No JSONL found — brand-new session, show as New placeholder
@@ -355,6 +362,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
                 started_at: live.started_at,
                 jsonl_path: PathBuf::new(),
                 last_file_size: 0,
+                task_items: vec![],
             });
         }
     }
@@ -367,7 +375,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
         if let Some(newer) =
             find_clear_successor(&session.cwd, &matched_session_ids, &session.jsonl_path)
         {
-            let info = parse_jsonl(&newer, 0, 0, 0, None, None, None);
+            let info = parse_jsonl(&newer, 0, 0, 0, None, None, None, vec![]);
             let new_sid = newer
                 .file_stem()
                 .map(|s| s.to_string_lossy().to_string())
@@ -380,6 +388,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
             session.effort = info.effort;
             session.last_activity = info.last_activity;
             session.last_file_size = info.file_size;
+            session.task_items = info.task_items;
             session.jsonl_path = newer;
             if let Some(cwd) = info.cwd {
                 session.cwd = cwd;
@@ -463,6 +472,7 @@ struct ParsedInfo {
     cwd: Option<String>,
     last_activity: Option<String>,
     file_size: u64,
+    task_items: Vec<crate::todos::TodoItem>,
 }
 
 use std::sync::Mutex;
@@ -629,6 +639,18 @@ struct MessageEntry {
     model: Option<String>,
     #[serde(default)]
     usage: Option<UsageEntry>,
+    #[serde(default)]
+    content: Vec<ContentItem>,
+}
+
+#[derive(Deserialize)]
+struct ContentItem {
+    #[serde(rename = "type", default)]
+    item_type: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    input: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -652,6 +674,7 @@ fn parse_jsonl(
     prev_model: Option<String>,
     prev_effort: Option<String>,
     prev_activity: Option<String>,
+    prev_task_items: Vec<crate::todos::TodoItem>,
 ) -> ParsedInfo {
     let file = match fs::File::open(path) {
         Ok(f) => f,
@@ -664,6 +687,7 @@ fn parse_jsonl(
                 cwd: None,
                 last_activity: prev_activity,
                 file_size: 0,
+                task_items: prev_task_items,
             }
         }
     };
@@ -679,6 +703,7 @@ fn parse_jsonl(
             cwd: None,
             last_activity: prev_activity,
             file_size,
+            task_items: prev_task_items,
         };
     }
 
@@ -689,6 +714,11 @@ fn parse_jsonl(
     let mut effort = prev_effort;
     let mut last_activity = prev_activity;
     let mut cwd = None;
+    let mut tasks: Vec<crate::todos::TodoItem> = if prev_file_size > 0 {
+        prev_task_items
+    } else {
+        Vec::new()
+    };
 
     if prev_file_size > 0 {
         let _ = reader.seek(SeekFrom::Start(prev_file_size));
@@ -735,6 +765,42 @@ fn parse_jsonl(
                             + usage.cache_creation_input_tokens
                             + usage.cache_read_input_tokens;
                         total_output = usage.output_tokens;
+                    }
+                    for item in &msg.content {
+                        if item.item_type == "tool_use" {
+                            match item.name.as_deref() {
+                                Some("TaskCreate") => {
+                                    if let Some(input) = &item.input {
+                                        let subject = input["subject"].as_str().unwrap_or("").to_string();
+                                        if !subject.is_empty() {
+                                            tasks.push(crate::todos::TodoItem {
+                                                content: subject,
+                                                status: crate::todos::TodoStatus::Pending,
+                                                source: crate::todos::TodoSource::TaskCreate,
+                                            });
+                                        }
+                                    }
+                                }
+                                Some("TaskUpdate") => {
+                                    if let Some(input) = &item.input {
+                                        if let Some(id_str) = input["taskId"].as_str() {
+                                            if let Ok(id) = id_str.parse::<usize>() {
+                                                if id >= 1 && id <= tasks.len() {
+                                                    if let Some(s) = input["status"].as_str() {
+                                                        tasks[id - 1].status = match s {
+                                                            "in_progress" => crate::todos::TodoStatus::InProgress,
+                                                            "completed" => crate::todos::TodoStatus::Completed,
+                                                            _ => crate::todos::TodoStatus::Pending,
+                                                        };
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                 }
             }
@@ -802,6 +868,7 @@ fn parse_jsonl(
         cwd,
         last_activity,
         file_size,
+        task_items: tasks,
     }
 }
 
@@ -889,9 +956,11 @@ fn strip_ansi(s: &str) -> String {
 }
 
 /// Encode a CWD path to a Claude project directory name.
-/// Claude Code replaces both `/` and `.` with `-`.
+/// Claude Code replaces all non-alphanumeric characters with `-`.
 fn encode_project_path(cwd: &str) -> String {
-    cwd.replace('/', "-").replace('.', "-")
+    cwd.chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
 }
 
 /// Find the newest unmatched JSONL in the project directory for `cwd` that was
@@ -1243,15 +1312,24 @@ fn discover_claude_tmux_panes() -> Vec<(i32, String, String, String)> {
 
 /// Check if a shell process has a claude child by looking for a child PID
 /// that has a corresponding ~/.claude/sessions/{PID}.json file.
+///
+/// Uses `ps -eo pid,ppid` instead of `pgrep -P` because pgrep -P is unreliable
+/// on macOS — it can fail to find children that ps correctly shows.
 fn find_claude_child_pid(parent_pid: i32) -> Option<i32> {
     let sessions_dir = dirs::home_dir()?.join(".claude").join("sessions");
-    let output = std::process::Command::new("pgrep")
-        .args(["-P", &parent_pid.to_string()])
+    let output = std::process::Command::new("ps")
+        .args(["-eo", "pid,ppid"])
         .output()
         .ok()?;
     String::from_utf8_lossy(&output.stdout)
         .lines()
-        .filter_map(|l| l.trim().parse::<i32>().ok())
+        .skip(1) // skip header
+        .filter_map(|l| {
+            let mut parts = l.split_whitespace();
+            let pid = parts.next()?.parse::<i32>().ok()?;
+            let ppid = parts.next()?.parse::<i32>().ok()?;
+            if ppid == parent_pid { Some(pid) } else { None }
+        })
         .find(|pid| sessions_dir.join(format!("{pid}.json")).exists())
 }
 

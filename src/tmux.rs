@@ -127,10 +127,30 @@ fn session_exists(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn which_claude() -> Option<String> {
+pub fn which_claude() -> Option<String> {
     let output = Command::new("which").arg("claude").output().ok()?;
     let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if path.is_empty() { None } else { Some(path) }
+}
+
+/// Return the pane targets (session:window.pane) of sibling panes in recon's current window.
+/// These are the panes the user is actively working in alongside the recon sidebar.
+pub fn sibling_pane_targets() -> Vec<String> {
+    let own_pane = std::env::var("TMUX_PANE").unwrap_or_default();
+    let output = match Command::new("tmux")
+        .args(["list-panes", "-F", "#{pane_id} #{session_name}:#{window_index}.#{pane_index}"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return vec![],
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    text.lines()
+        .filter_map(|line| {
+            let (pane_id, target) = line.split_once(' ')?;
+            if pane_id != own_pane { Some(target.to_string()) } else { None }
+        })
+        .collect()
 }
 
 /// Kill a tmux session by name.

@@ -1,5 +1,6 @@
 mod app;
 mod cli;
+mod todos;
 mod history;
 mod model;
 mod new_session;
@@ -51,35 +52,30 @@ fn main() -> io::Result<()> {
                 }
             }
         }
-        Some(Command::Resume { id, name, no_attach }) => {
-            if let Some(session_id) = id {
-                match tmux::resume_session(&session_id, name.as_deref()) {
-                    Ok(sess) => {
-                        if !no_attach {
-                            tmux::switch_to_pane(&sess);
-                        }
-                        eprintln!("Resumed in session: {sess}");
-                    }
-                    Err(e) => {
-                        eprintln!("Error: {e}");
-                        std::process::exit(1);
-                    }
-                }
+        Some(Command::Resume { id, name: _, no_attach: _ }) => {
+            let session_id = if let Some(id) = id {
+                id
             } else {
                 let result = history::run_resume_picker()?;
-                if let Some((session_id, sess_name)) = result {
-                    match tmux::resume_session(&session_id, Some(&sess_name)) {
-                        Ok(sess) => {
-                            tmux::switch_to_pane(&sess);
-                            eprintln!("Resumed in session: {sess}");
-                        }
-                        Err(e) => {
-                            eprintln!("Error: {e}");
-                            std::process::exit(1);
-                        }
-                    }
+                match result {
+                    Some((sid, _)) => sid,
+                    None => return Ok(()),
                 }
+            };
+
+            // Run claude --resume directly in the current pane.
+            let cwd = session::find_session_cwd(&session_id);
+            let claude = tmux::which_claude().unwrap_or_else(|| "claude".to_string());
+
+            use std::os::unix::process::CommandExt;
+            let mut cmd = std::process::Command::new(&claude);
+            cmd.args(["--resume", &session_id]);
+            if let Some(dir) = cwd {
+                cmd.current_dir(dir);
             }
+            let err = cmd.exec();
+            eprintln!("Error: {err}");
+            std::process::exit(1);
         }
         Some(Command::Next) => {
             let mut app = App::new();
