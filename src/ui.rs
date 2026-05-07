@@ -97,7 +97,8 @@ fn render_table(frame: &mut Frame, app: &App, area: Rect) {
 
             // Project: repo::relative_dir::branch
             let project_cell = {
-                let mut spans = vec![Span::raw(&session.project_name)];
+                let display_name = session.name.as_deref().unwrap_or(session.project_name.as_str());
+                let mut spans = vec![Span::raw(display_name)];
                 if let Some(dir) = &session.relative_dir {
                     spans.push(Span::styled("::", Style::default().fg(Color::DarkGray)));
                     spans.push(Span::styled(dir.clone(), Style::default().fg(Color::Cyan)));
@@ -204,7 +205,7 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         let line_style = if session.status == SessionStatus::Input {
             Style::default().bg(Color::Rgb(50, 40, 0))
         } else if i == app.selected {
-            Style::default().bg(Color::Rgb(40, 40, 60))
+            Style::default().bg(Color::Rgb(35, 45, 85))
         } else {
             Style::default()
         };
@@ -223,17 +224,19 @@ fn render_cards(frame: &mut Frame, app: &App, area: Rect) {
         let is_active = session.pane_target.as_deref()
             .map(|t| app.active_pane_targets.iter().any(|a| a == t))
             .unwrap_or(false);
-        let prefix = if is_active {
-            Span::styled("❯❯", Style::default().fg(Color::White))
-        } else {
-            Span::raw("  ")
+        let is_selected = i == app.selected;
+        let prefix = match (is_active, is_selected) {
+            (true,  true)  => Span::styled("❯❯", Style::default().fg(Color::White)),
+            (true,  false) => Span::styled("❯❯", Style::default().fg(Color::White)),
+            (false, true)  => Span::styled(" ❯", Style::default().fg(Color::Cyan)),
+            (false, false) => Span::raw("  "),
         };
         let mut title_spans = vec![
             prefix,
             Span::styled(icon, Style::default().fg(status_color)),
             Span::raw(" "),
             Span::styled(
-                session.project_name.as_str(),
+                session.name.as_deref().unwrap_or(session.project_name.as_str()),
                 Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             ),
         ];

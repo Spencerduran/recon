@@ -270,6 +270,7 @@ impl App {
                 serde_json::json!({
                     "index": i + 1,
                     "session_id": s.session_id,
+                    "name": s.name,
                     "project_name": s.project_name,
                     "branch": s.branch,
                     "cwd": s.cwd,

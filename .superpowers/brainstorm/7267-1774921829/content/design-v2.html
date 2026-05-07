@@ -1,0 +1,44 @@
+<h2>Sidebar Design — Status Colors Revised</h2>
+<p class="subtitle">Input and Idle both signal "your turn" — same warm color, different icons.</p>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">All four states</div>
+    <div class="mockup-body">
+      <pre style="font-family:'SF Mono',monospace;font-size:12px;line-height:1.6;background:#0d0d1a;color:#c8c8d4;padding:14px;border-radius:4px;margin:0;text-align:left">┌ recon ── Claude Code Sessions ──────────┐
+│                                         │
+│  <span style="color:#5bc8f5">●</span> <span style="color:#fff;font-weight:bold">spencerduran</span>                         │
+│    <span style="color:#5bc8f5">Working</span>  ·  68k / 200k  ·  &lt; 1m      │
+│    ~/repos/recon  ·  Sonnet 4.6         │
+│                                         │
+│  <span style="color:#fabd2f">⧗</span> <span style="color:#fff;font-weight:bold">loansure-dagster</span>                     │
+│    <span style="color:#fabd2f">Input</span>  ·  142k / 200k  ·  2m          │
+│    ~/mlg/loansure-dagster  ·  Sonnet    │
+│                                         │
+│  <span style="color:#fabd2f">○</span> <span style="color:#fff;font-weight:bold">mind_forge</span>                           │
+│    <span style="color:#fabd2f">Idle</span>  ·  27k / 200k  ·  29m ago       │
+│    ~/vaults/mind_forge  ·  Sonnet 4.6  │
+│                                         │
+│  <span style="color:#444">·</span> <span style="color:#666">athena-claude</span>                        │
+│    <span style="color:#444">New</span>  ·  0k / 200k  ·  —              │
+│    ~/mlg/athena-claude  ·  —            │
+│                                         │
+└─────────────────────────────────────────┘</pre>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">Legend</div>
+    <div class="mockup-body">
+      <pre style="font-family:monospace;font-size:13px;line-height:2;background:#0d0d1a;color:#c8c8d4;padding:14px;border-radius:4px;margin:0">  <span style="color:#5bc8f5">●  Working</span>   Claude is running
+
+  <span style="color:#fabd2f">⧗  Input</span>     Waiting on you
+                (permission prompt)
+
+  <span style="color:#fabd2f">○  Idle</span>      Waiting on you
+                (done or ready)
+
+  <span style="color:#444">·  New</span>       Not started yet</pre>
+      <p style="color:#888;font-size:11px;margin-top:12px">Input and Idle share yellow — both are<br><code style="background:#1a1a2e;padding:2px 4px;border-radius:3px">prefix+u</code> targets. Icon distinguishes why.</p>
+    </div>
+  </div>
+</div>

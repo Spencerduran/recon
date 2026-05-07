@@ -1,0 +1,5 @@
+{"type":"server-started","port":59786,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:59786","screen_dir":"/Users/spencerduran/repos/recon/.superpowers/brainstorm/7267-1774921829/content","state_dir":"/Users/spencerduran/repos/recon/.superpowers/brainstorm/7267-1774921829/state"}
+{"type":"screen-added","file":"/Users/spencerduran/repos/recon/.superpowers/brainstorm/7267-1774921829/content/layouts.html"}
+{"type":"screen-added","file":"/Users/spencerduran/repos/recon/.superpowers/brainstorm/7267-1774921829/content/design.html"}
+{"type":"screen-added","file":"/Users/spencerduran/repos/recon/.superpowers/brainstorm/7267-1774921829/content/design-v2.html"}
+{"type":"server-stopped","reason":"idle timeout"}

@@ -30,6 +30,7 @@ impl SessionStatus {
 #[derive(Debug, Clone)]
 pub struct Session {
     pub session_id: String,
+    pub name: Option<String>,
     pub project_name: String,
     pub branch: Option<String>,
     pub cwd: String,
@@ -223,6 +224,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
 
             sessions.push(Session {
                 session_id,
+                name: live.name.clone(),
                 project_name,
                 branch,
                 cwd,
@@ -323,6 +325,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
 
             sessions.push(Session {
                 session_id: session_id_key.clone(),
+                name: live.name.clone(),
                 project_name,
                 relative_dir,
                 branch,
@@ -346,6 +349,7 @@ pub fn discover_sessions(prev_sessions: &HashMap<String, Session>) -> Vec<Sessio
             let (project_name, relative_dir, branch) = git_project_info(&live.pane_cwd);
             sessions.push(Session {
                 session_id: session_id_key.clone(),
+                name: live.name.clone(),
                 project_name,
                 relative_dir,
                 branch,
@@ -416,6 +420,7 @@ fn truncate_to_minute(ts: &Option<String>) -> Option<String> {
 /// Info about a live claude session, built from tmux + session files.
 struct LiveSessionInfo {
     pid: i32,
+    name: Option<String>,
     tmux_session: String,
     pane_target: String,
     pane_cwd: String,
@@ -438,6 +443,7 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
                 info.session_id.clone(),
                 LiveSessionInfo {
                     pid,
+                    name: info.name.clone(),
                     tmux_session,
                     pane_target,
                     pane_cwd,
@@ -452,6 +458,7 @@ fn build_live_session_map() -> HashMap<String, LiveSessionInfo> {
                 format!("tmux-{pane_target}"),
                 LiveSessionInfo {
                     pid,
+                    name: None,
                     tmux_session,
                     pane_target,
                     pane_cwd,
@@ -1197,6 +1204,7 @@ fn is_spinner(c: char) -> bool {
 struct SessionFileInfo {
     session_id: String,
     started_at: u64,
+    name: Option<String>,
 }
 
 /// Read ~/.claude/sessions/{PID}.json files to build a PID → session info map.
@@ -1225,11 +1233,16 @@ fn read_pid_session_map() -> HashMap<i32, SessionFileInfo> {
                             .get("startedAt")
                             .and_then(|s| s.as_u64())
                             .unwrap_or(0);
+                        let name = v
+                            .get("name")
+                            .and_then(|n| n.as_str())
+                            .map(|s| s.to_string());
                         map.insert(
                             pid as i32,
                             SessionFileInfo {
                                 session_id: sid.to_string(),
                                 started_at,
+                                name,
                             },
                         );
                     }
