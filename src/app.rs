@@ -124,12 +124,16 @@ impl App {
             KeyCode::Char('v') => self.view_mode = ViewMode::View,
             KeyCode::Char('j') | KeyCode::Down => {
                 if !self.sessions.is_empty() {
-                    self.selected = (self.selected + 1).min(self.sessions.len() - 1);
+                    self.selected = (self.selected + 1) % self.sessions.len();
                 }
             }
             KeyCode::Char('k') | KeyCode::Up => {
-                if self.selected > 0 {
-                    self.selected -= 1;
+                if !self.sessions.is_empty() {
+                    self.selected = if self.selected == 0 {
+                        self.sessions.len() - 1
+                    } else {
+                        self.selected - 1
+                    };
                 }
             }
             KeyCode::Enter => {
